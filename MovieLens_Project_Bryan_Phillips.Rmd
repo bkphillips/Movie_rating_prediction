@@ -1,0 +1,277 @@
+---
+title: "MovieLens Project"
+author: "Bryan Phillips"
+date: "1/6/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(caret)
+library(data.table)
+library(tidyr)
+library(ggplot2)
+edx <- readRDS("~/harv_x/movie_data/edx.rds")
+validation <- readRDS("~/harv_x/movie_data/validation.rds")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+For this project, the task is to create a movie recommendation system using movie ratings data given on a scale from 1-5 from individual users in order to predict user ratings of other movies they have not yet rated.
+
+The data I am using is the 10 million user ratings MovieLens data available at the link below:
+"https://grouplens.org/datasets/movielens/10m/"
+
+The information given in this dataset includes:
+-User ID
+-Movie Title
+-Movie ID
+-Time Stamp
+-Genre
+-Rating
+
+Below is a sample of the data given:
+```{r edx sample, echo=FALSE}
+head(edx)
+```
+
+The datasets have already been split into a testing and validation datasets. The testing dataset has 9,000,055 observations from users. The validation dataset has 999,999 observations.
+
+The analysis I plan on using is based off of the recommendation system section of the machine learning course part of the Harvard Data Science Certificate Course. In this section, a matrix factorization model was used to build a recommendation system. I plan on building off of this original analysis.
+
+The method in which I am testing the validity of my recommendation is by seeing the Root Mean Squared Error (RMSE) of each model on the validation dataset provided. My goal is to get a RMSE of less than 0.8649.
+
+note: The datasets used in this analysis were provided on the group forum DropBox folder because the datasets generated from the given dataset code did not match the grader results. For consistency, I used the given datasets throughout the analysis.
+
+Below is a link to the dropbox folder of the datasets I used and reference in my code
+https://www.dropbox.com/sh/n2d1gji7kkdsvhi/AADnvvXmRqXOfoP7bHN_1ydda?dl=0
+
+All the code used for this analysis is available on my GitHub repository linked below:
+https://github.com/bkphillips/Movie_rating_prediction/
+
+## Analysis
+
+For this analysis, I build off the original recommendation system analysis previously mentioned in the machine learning course.
+
+The first model looks just at the overall average of the test dataset, which is 3.512465. This naive model has a RMSE of 1.0603.
+
+The second model is based off the observation that each individual movie has an effect on the rating. This movie effect is represented by "b_i" in the second movel. Below is a distribution of this effect:
+
+```{r movie avg, echo=FALSE}
+mu <- mean(edx$rating) 
+movie_avgs <- edx %>% 
+  group_by(movieId) %>% 
+  summarize(b_i = mean(rating - mu))
+movie_avgs %>% qplot(b_i, geom ="histogram", bins = 10, data = ., color = I("black"))
+```
+
+The third model is based off of the observation that there is a user bias that affects the ratings. Some users may be very picky, while others are very generous in their ratings of movies. Below is a distribution of user ratings:
+```{r user ratings, echo=FALSE}
+edx %>% 
+  group_by(userId) %>% 
+  summarize(b_u = mean(rating)) %>% 
+  filter(n()>=100) %>%
+  ggplot(aes(b_u)) + 
+  geom_histogram(bins = 30, color = "black")
+```
+
+The third model combines both the movie and user effects as b_i + b_u.
+
+In my own analysis, I wanted to incorporate the genre into the model in order to get a more accurate recommendation. In order to do this, I converted the genre information into a tidy format in order to provide a more accurate recommendation. Before converting the genre, there were 797 distinct categories for genre show in the average rating distribution below:
+```{r non tidy genre, echo=FALSE}
+edx %>% group_by(genres) %>%
+  summarize(n = n(), avg = mean(rating), se = sd(rating)/sqrt(n())) %>%
+  filter(n >= 10000) %>% 
+  mutate(genres = reorder(genres, avg)) %>%
+  ggplot(aes(x = genres, y = avg, ymin = avg - 2*se, ymax = avg + 2*se)) + 
+  geom_point() +
+  geom_errorbar() + 
+  theme(axis.text.x = element_blank())
+```
+
+I then converted the data into a long format where I now have only 20 different genres that can more accurately predict the rating, as shown by the plot below of the average rating by the new tidy genres:
+```{r tidy genre, echo=FALSE}
+edxl <- edx %>% 
+  separate_rows(genres,sep="\\|")
+
+edxl %>% group_by(genres) %>%
+  summarize(n = n(), avg = mean(rating), se = sd(rating)/sqrt(n())) %>%
+  filter(n >= 100) %>% 
+  mutate(genres = reorder(genres, avg)) %>%
+  ggplot(aes(x = genres, y = avg, ymin = avg - 2*se, ymax = avg + 2*se)) + 
+  geom_point() +
+  geom_errorbar() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+For the fourth model, I used this genre effect (b_g) seen in the figure above alongise both the movie and user effect represented as "b_i + b_u + b_g".
+
+For a fifth model, I made an assumption that each user most likely has a strong preference for a genre that will affect the rating, which would help make a strong prediction. I represent is user genre effect as b_ug in a model that incorporates also the movie and user effects as "b_i + b_u + b_ug".
+
+When validating this last model on the validation data, I noticed that there is not always User Genre rating information for each user in the new dataset, which in that case the model assumes just the movie and user effects.
+
+##Results
+
+Below are my RMSE results from the test data on each model I previously described above:
+```{r rmse results, echo=FALSE, message=FALSE, warning=FALSE}
+mu_hat <- mean(edx$rating)
+naive_rmse <- RMSE(edx$rating, mu_hat)
+rmse_results <- data_frame(method = "Just the average", RMSE = naive_rmse)
+#Creating movie average rating model "b_i"
+# fit <- lm(rating ~ as.factor(userId), data = movielens)
+mu <- mean(edx$rating) 
+movie_avgs <- edx %>% 
+  group_by(movieId) %>% 
+  summarize(b_i = mean(rating - mu))
+
+#gathering b_i variable for analysis
+predicted_ratings <- mu + edx %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  .$b_i
+
+#checking rmse of first b_i model and adding to results table
+model_1_rmse <- RMSE(predicted_ratings, edx$rating)
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Movie Effect Model",
+                                     RMSE = model_1_rmse ))
+#creating average user ratings data to create user bias "b_u"
+# lm(rating ~ as.factor(movieId) + as.factor(userId))
+user_avgs <- edx %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  group_by(userId) %>%
+  summarize(b_u = mean(rating - mu - b_i))
+
+predicted_ratings <- edx %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  .$pred
+
+#checking rmse of "b_i+b_u" model and adding to results table
+model_2_rmse <- RMSE(predicted_ratings, edx$rating)
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Movie + User Effects Model",  
+                                     RMSE = model_2_rmse ))
+
+#Creating tidy version of data to work with genres
+edxl <- edx %>% 
+  separate_rows(genres,sep="\\|")
+#creating the genre average for genre bias "b_g" using tidy genre data
+genre_avgs <- edxl %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  group_by(genres) %>%
+  summarize(b_g = mean(rating - mu - b_i - b_u))
+
+#Creating model for b_i + b_u + b_g
+predicted_ratings <- edxl %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  left_join(genre_avgs, by='genres') %>%
+  mutate(pred = mu + b_i + b_u + b_g) %>%
+  group_by(userId,movieId,rating) %>% 
+  summarize(pred = mean(pred)) 
+
+model_3_rmse <- RMSE(predicted_ratings$pred, predicted_ratings$rating)
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Movie + User Effects + Genre Effects Model",  
+                                     RMSE = model_3_rmse ))
+
+#Create User Genre Bias data for "b_ug"
+ugenre_avgs <- edxl %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  group_by(userId, genres) %>%
+  summarize(b_ug = mean(rating - mu - b_i - b_u))
+
+# create user genre effects model b_i + b_u + b_ug
+predicted_ratings <- edxl %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  left_join(ugenre_avgs, by=c('genres'='genres','userId'='userId')) %>%
+  rowwise()  %>%
+  mutate(pred = sum( mu,b_i, b_u, b_ug, na.rm=TRUE)) 
+predicted_ratings<- predicted_ratings %>%
+  group_by(userId,movieId,rating) %>% 
+  summarize(pred = mean(pred)) 
+
+model_4_rmse <- RMSE(predicted_ratings$pred, predicted_ratings$rating)
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Movie + User Effects + User Genre Effects Model",  
+                                     RMSE = model_4_rmse ))
+
+
+rmse_results %>% knitr::kable()
+```
+
+It appears that the last model that incorporated the user-genre effects had an significant improvement on the RMSE on the testing data.
+
+For validation, I only looked at the last three models on the validation dataset. Below are the results of validating these three models using the validation dataset:
+```{r validation, echo=FALSE, message=FALSE, warning=FALSE}
+
+#adding b_i + b_u prediction model
+predicted_ratings <- validation %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  .$pred
+
+#checking rmse of "b_i+b_u" model and adding to results table
+val_1_rmse <- RMSE(predicted_ratings, validation$rating)
+val_rmse_results <- data_frame(method = "Movie + User Effects Model", RMSE = val_1_rmse)
+
+#For genre related models, creating tidy version of validation data
+val_xl <-validation %>% 
+  separate_rows(genres,sep="\\|")
+
+# Adding genre effects model for validation
+predicted_ratings <- val_xl %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  left_join(genre_avgs, by='genres') %>%
+  rowwise()  %>%
+  mutate(pred = sum( mu,b_i, b_u, b_g, na.rm=TRUE)) 
+predicted_ratings<- predicted_ratings %>%
+  group_by(userId,movieId,rating) %>% 
+  summarize(pred = mean(pred)) 
+
+#Validate rmse of b_i + b_u + b_g model
+val_2_rmse <- RMSE(predicted_ratings$pred, predicted_ratings$rating)
+
+val_rmse_results <- bind_rows(val_rmse_results,
+          data_frame(method="Movie + User Effects + Genre Effects Model",  
+                     RMSE = val_2_rmse ))
+
+# Validate User Genre Model FINAL MODEL VALIDATION
+# Add user genre model prediction to validation data
+predicted_ratings <- val_xl %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  left_join(ugenre_avgs, by=c('genres'='genres','userId'='userId')) %>%
+  rowwise()  %>%
+  mutate(pred = sum( mu,b_i, b_u, b_ug, na.rm=TRUE)) 
+predicted_ratings<- predicted_ratings %>%
+  group_by(userId,movieId,rating) %>% 
+  summarize(pred = mean(pred)) 
+
+#Validate rmse of b_i + b_u + b_g model
+val_3_rmse <- RMSE(predicted_ratings$pred, predicted_ratings$rating)
+
+val_rmse_results <- bind_rows(val_rmse_results,
+                              data_frame(method="Movie + User Effects + User Genre Effects Model",  
+                                         RMSE = val_3_rmse ))
+val_rmse_results %>% knitr::kable()
+```
+
+##Conclusion
+
+It appears that the fifth model of Movie, User, and User Genre Effects (b_i + b_u + b_ug) had the strongest predictive performance on the validation dataset with a RMSE of 0.8497552. It is interesting that addition of the genre effects on the model did not cause much predictive improvement on the model.
+
+The results of this analysis show that individual tastes for a particual genre have a significant impact on their rating for a particular movie. In the real world, this makes sense given that many people have a strong affinity towards a particular genre of movies.
+
+A major limitation of this method is that it requires previous user information and would not have much predictive performance on users that had not already provided rating information into the model.
+
+
+
+
