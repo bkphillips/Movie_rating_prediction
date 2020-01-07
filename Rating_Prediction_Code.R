@@ -231,4 +231,5 @@ val_rmse_results <- bind_rows(val_rmse_results,
                                          RMSE = val_3_rmse ))
 val_rmse_results %>% knitr::kable()
 
+#Final model RMSE = 0.84975
 
