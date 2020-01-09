@@ -24,13 +24,7 @@ For this project, the task is to create a movie recommendation system using movi
 The data I am using is the 10 million user ratings MovieLens data available at the link below:
 "https://grouplens.org/datasets/movielens/10m/"
 
-The information given in this dataset includes:
--User ID
--Movie Title
--Movie ID
--Time Stamp
--Genre
--Rating
+The information given in this dataset includes: User ID, Movie Title, Movie ID, Time Stamp, Genre, Rating
 
 Below is a sample of the data given:
 ```{r edx sample, echo=FALSE}
@@ -68,6 +62,7 @@ movie_avgs %>% qplot(b_i, geom ="histogram", bins = 10, data = ., color = I("bla
 ```
 
 The third model is based off of the observation that there is a user bias that affects the ratings. Some users may be very picky, while others are very generous in their ratings of movies. Below is a distribution of user ratings:
+
 ```{r user ratings, echo=FALSE}
 edx %>% 
   group_by(userId) %>% 
@@ -79,7 +74,9 @@ edx %>%
 
 The third model combines both the movie and user effects as b_i + b_u.
 
-In my own analysis, I wanted to incorporate the genre into the model in order to get a more accurate recommendation. In order to do this, I converted the genre information into a tidy format in order to provide a more accurate recommendation. Before converting the genre, there were 797 distinct categories for genre show in the average rating distribution below:
+In my own analysis, I wanted to incorporate the genre into the model in order to get a more accurate recommendation. In order to do this, I converted the genre information into a tidy format in order to provide a more accurate recommendation. Before converting the genre, there were 797 distinct categories for genre shown in the average rating distribution below:
+
+
 ```{r non tidy genre, echo=FALSE}
 edx %>% group_by(genres) %>%
   summarize(n = n(), avg = mean(rating), se = sd(rating)/sqrt(n())) %>%
